@@ -116,24 +116,24 @@ function fitj!(er::ExpectReg, j::Int; start=nothing, meth=LBFGS())
         return
     end
 
-	loss1 = beta -> expectreg_loss(er, beta; j=j)
-	grad! = (g, beta) -> expectreg_loss_grad!(er, g, beta; j=j)
-	beta0 =
-	if isnothing(start)
-	    0.1*randn(p)
-	else
-	    if !(typeof(start) <: Vector && length(start) != p)
-	        error("'start' must be a vector of length $(p)")
-	    end
-	    start
-	end
+    loss1 = beta -> expectreg_loss(er, beta; j=j)
+    grad! = (g, beta) -> expectreg_loss_grad!(er, g, beta; j=j)
+    beta0 =
+    if isnothing(start)
+        0.1*randn(p)
+    else
+        if !(typeof(start) <: Vector && length(start) != p)
+            error("'start' must be a vector of length $(p)")
+        end
+        start
+    end
 
-	opts = Optim.Options(g_tol=1e-4)
-	r = optimize(loss1, grad!, beta0, meth, opts)
-	if !Optim.converged(r)
+    opts = Optim.Options(g_tol=1e-4)
+    r = optimize(loss1, grad!, beta0, meth, opts)
+    if !Optim.converged(r)
         @warn("Expectile regression did not converge")
-	end
-	er.beta[:, j] .= Optim.minimizer(r)
+    end
+    er.beta[:, j] .= Optim.minimizer(r)
 end
 
 function fit(::Type{ExpectReg}, X::AbstractMatrix, y::AbstractVector; tau::Vector=Float64[0.5],
