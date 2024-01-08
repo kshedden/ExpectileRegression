@@ -244,7 +244,7 @@ function predict(er::ExpectReg)
     return X * beta
 end
 
-function predict(er::ExpectReg, x)
+function predict(er::ExpectReg, x::T) where{T<:AbstractArray}
     return x * coef(er)
 end
 
@@ -291,7 +291,7 @@ function crossfit(er::ExpectReg, targetf::Function; M=I(nobs(er)), nfold=100)
         fit!(ee)
 
         # The estimated target function for each case
-        tgt = [targetf(ee, x) for x in eachrow(Xte)]
+        tgt = [targetf(ee, X[i, :], i) for i in ite]
 
         # The point estimate in the current fold.
         est = mean(tgt, weights(wge))

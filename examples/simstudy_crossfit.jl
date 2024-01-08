@@ -60,11 +60,9 @@ function study_hom(tau::Float64, X, icc; rng=StableRNG(123), nrep=100, nfold=100
 
     # Estimate the difference between the expected response for
     # treated and untreated people.
-    targetf = function(er, x)
-        if typeof(x) <: AbstractVector
-            x = reshape(x, (1, length(x)))
-        end
+    targetf = function(er, x, i)
         z = copy(x)
+        z = reshape(z, (1, length(z)))
         z[2] = 1
         b1 = predict(er, z)[1]
         z[2] = 0
@@ -113,7 +111,7 @@ function study_hom(n, p, tau::Float64, icc; rng=StableRNG(123), nrep=1000, nfold
 end
 
 n = 400
-p = 20
+p = 5
 for tau in [0.5, 0.75, 0.9, 0.95, 0.99]
     for icc in [0, 0.5]
         _, _, _, tgtf = simdat(Random.default_rng(), icc, randn(n, p))
