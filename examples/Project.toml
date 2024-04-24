@@ -1,4 +1,5 @@
 [deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DynamicAllocation = "d52066ee-dcc4-417d-a1b2-204891a17ab9"
 ExpectileRegression = "c0ee4537-af77-4c73-bdb0-f2e36426e5e8"

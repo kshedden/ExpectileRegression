@@ -11,9 +11,7 @@ using Printf
 # heteroscedasticity explained by the treatment indicator X[2].
 function simdat(rng, icc, X)
     n, p = size(X)
-    beta = zeros(p)
-    beta[1:3] = Float64[1, 0, 0]
-    Ey = X * beta
+    Ey = X[:, 1] + 1 ./ (1 .+ exp.(X[:, 2])) + 0.5*(0.5*X[:,3] .- 0.25*X[:,3].^2)
 
     # Consecutive pairs are correlated.
     e = randn(rng, n)
@@ -22,10 +20,10 @@ function simdat(rng, icc, X)
     u = kron(u, [1, 1])
     e = sqrt(icc) * u + sqrt(1 - icc) * e
 
-    y = Ey + e .* (1 .+ X[:, 2])
-    tgtf = tau -> ExpectileRegression.normal_expectile(tau)*(2 - 1)
+    y = Ey + e .* (1 .+ 0.3*X[:, 1])
+    tgtf = tau -> 2 + 0.6*ExpectileRegression.normal_expectile(tau)
 
-    return y, Ey, beta, tgtf
+    return y, Ey, tgtf
 end
 
 # Generate a n x p design matrix whose columns are autocorrelated
@@ -34,19 +32,14 @@ end
 function genAR(rng, n, p, r)
     X = randn(rng, n, p)
 
-    # Intercept
-    X[:, 1] .= 1
-
     # Treatment indicator
-    X[:, 2] .= 0
+    X[:, 1] .= 1
     n2 = Int(n/2+1)
-    X[n2:end, 2] .= 2
+    X[n2:end, 1] .= -1
 
-    for j in 3:p
+    for j in 2:p
         X[:, j] = r*X[:, j-1] + sqrt(1-r^2)*X[:, j]
     end
-
-    X[:, 1] ./= 2
 
     return X
 end
@@ -63,9 +56,9 @@ function study_hom(tau::Float64, X, icc; rng=StableRNG(123), nrep=100, nfold=100
     targetf = function(er, x, i)
         z = copy(x)
         z = reshape(z, (1, length(z)))
-        z[2] = 1
+        z[1] = 1
         b1 = predict(er, z)[1]
-        z[2] = 0
+        z[1] = -1
         b0 = predict(er, z)[1]
         return b1 - b0
     end
@@ -85,9 +78,9 @@ function study_hom(tau::Float64, X, icc; rng=StableRNG(123), nrep=100, nfold=100
 
         V = vcov_array(er; M=M)
         X1 = copy(X)
-        X1[:, 2] .= 1
+        X1[:, 1] .= 1
         X2 = copy(X)
-        X2[:, 2] .= 0
+        X2[:, 1] .= -1
         xd = mean(X1 - X2; dims=1)
         se_mb = sqrt(xd * V * xd')[1,1]
 
@@ -111,10 +104,10 @@ function study_hom(n, p, tau::Float64, icc; rng=StableRNG(123), nrep=1000, nfold
 end
 
 n = 400
-p = 5
-for tau in [0.5, 0.75, 0.9, 0.95, 0.99]
-    for icc in [0, 0.5]
-        _, _, _, tgtf = simdat(Random.default_rng(), icc, randn(n, p))
+p = 3
+for tau in [0.01, 0.25] #, 0.75, 0.9, 0.95, 0.99]
+    for icc in [0., 0.25] #, 0.5]
+        _, _, tgtf = simdat(Random.default_rng(), icc, randn(n, p))
         R = study_hom(n, p, tau, icc; nrep=200, nfold=50)
         println("tau=", tau)
         println(@sprintf("%12.4f target", tgtf(tau)))

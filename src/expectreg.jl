@@ -56,24 +56,7 @@ function ExpectReg(X::AbstractMatrix, y::AbstractVector; tau::AbstractVector=Flo
     return ExpectReg(X, y, zeros(p, q), wgt, L2Pen, tau)
 end
 
-# The check function
-function check(y, tau)
-    return y > 0 ? tau : 1 - tau
-end
-
-# The expectile loss function.
-function eloss(x::Float64, tau::Float64)
-    f = x > 0 ? tau : 1 - tau
-    return f * x * x
-end
-
-# The derivative of the expectile loss function (score function).
-function elossgrad(x::Float64, tau::Float64)
-    f = x > 0 ? tau : 1 - tau
-    return 2 * f * x
-end
-
-# The expectile regressionm loss function.
+# The expectile regression loss function.
 function expectreg_loss(er::ExpectReg, beta::Vector{T}; j::Int=1) where{T<:Real}
     (; y, X, wgt, L2Pen, tau) = er
     fv = X * beta
@@ -268,9 +251,19 @@ function crossfit(er::ExpectReg, targetf::Function; M=I(nobs(er)), nfold=100)
     L = M - I
     d = sum(L; dims=1)[:]
     L = Diagonal(d) - L
-    dec, hist = partialschur(Symmetric(L); nev=20, which=SR())
-    a, b = partialeigen(dec)
-    b = real.(b)
+
+    nev = 20
+    a = zeros(0)
+    b = zeros(0, 0)
+    while nev < size(L, 1)
+        dec, hist = partialschur(Symmetric(L); nev=nev, which=:SR)
+        a, b = partialeigen(dec)
+        b = real.(b)
+        if all(abs2.(a) .< 1e-10)
+            break
+        end
+        nev *= 2
+    end
 
     mom = zeros(nfold, 2)
     for k in 1:nfold
