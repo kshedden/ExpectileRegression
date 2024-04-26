@@ -7,11 +7,10 @@ using Random
 using SparseArrays
 using Printf
 
-# Simulate data with no covariate effects at the mean, and with
-# heteroscedasticity explained by the treatment indicator X[2].
-function simdat(rng, icc, X)
+function gendat(rng, icc, X)
+
     n, p = size(X)
-    Ey = X[:, 1] + 1 ./ (1 .+ exp.(X[:, 2])) + 0.5*(0.5*X[:,3] .- 0.25*X[:,3].^2)
+    Ey = X[:, 2] + X[:, 3]
 
     # Consecutive pairs are correlated.
     e = randn(rng, n)
@@ -20,24 +19,24 @@ function simdat(rng, icc, X)
     u = kron(u, [1, 1])
     e = sqrt(icc) * u + sqrt(1 - icc) * e
 
-    y = Ey + e .* (1 .+ 0.3*X[:, 1])
+    y = Ey + e .* (1 .+ 0.3*X[:, 2])
     tgtf = tau -> 2 + 0.6*ExpectileRegression.normal_expectile(tau)
 
     return y, Ey, tgtf
 end
 
-# Generate a n x p design matrix whose columns are autocorrelated
-# with parameter r.  The first column is an intercept and the second
-# column is a binary indicator.
 function genAR(rng, n, p, r)
     X = randn(rng, n, p)
 
-    # Treatment indicator
+    # Intercept
     X[:, 1] .= 1
-    n2 = Int(n/2+1)
-    X[n2:end, 1] .= -1
 
-    for j in 2:p
+    # Treatment indicator
+    X[:, 2] .= 1
+    n2 = Int(n/2+1)
+    X[n2:end, 2] .= -1
+
+    for j in 3:p
         X[:, j] = r*X[:, j-1] + sqrt(1-r^2)*X[:, j]
     end
 
@@ -47,18 +46,24 @@ end
 # Estimate coverage probabilities for Wald-type intervals of each regression coefficient.
 # Also returns the robust covariance estimate V and the empirical covariance of the coefficient
 # estimates.
-function study_hom(tau::Float64, X, icc; rng=StableRNG(123), nrep=100, nfold=100)
+function crossfit_helper(tau::Float64, X, icc, tgtf; rng=StableRNG(123), nrep=100, nfold=100)
 
     n, p = size(X)
+
+    X1 = copy(X)
+    X1[:, 2] .= 1
+    X2 = copy(X)
+    X2[:, 2] .= -1
+    xd = mean(X1 - X2; dims=1)
 
     # Estimate the difference between the expected response for
     # treated and untreated people.
     targetf = function(er, x, i)
-        z = copy(x)
+        local z = copy(x)
         z = reshape(z, (1, length(z)))
-        z[1] = 1
+        z[2] = 1
         b1 = predict(er, z)[1]
-        z[1] = -1
+        z[2] = -1
         b0 = predict(er, z)[1]
         return b1 - b0
     end
@@ -70,51 +75,61 @@ function study_hom(tau::Float64, X, icc; rng=StableRNG(123), nrep=100, nfold=100
         M[j:j+1, j:j+1] .= 1
     end
 
-    R = zeros(nrep, 3)
-    for i in 1:nrep
-        y, _, _ = simdat(rng, icc, X)
+    target = tgtf(tau)
 
-        er = ExpectReg(X, y; tau=[tau])
+    z = zeros(nrep, 7)
+    for i in 1:nrep
+        y, _, _ = gendat(rng, icc, X)
+
+        er = fit(ExpectReg, X, y; tau=[tau])
+        cc = coef(er)[:, 1]
 
         V = vcov_array(er; M=M)
-        X1 = copy(X)
-        X1[:, 1] .= 1
-        X2 = copy(X)
-        X2[:, 1] .= -1
-        xd = mean(X1 - X2; dims=1)
+        est_mb = dot(cc, xd)
         se_mb = sqrt(xd * V * xd')[1,1]
 
         fest = crossfit(er, targetf; M=M, nfold=nfold)
-        est = mean(fest[:, 1])
-        sd_est = sqrt(mean(fest[:, 2]) + var(fest[:, 1]))
-        R[i, :] = [est, sd_est, se_mb]
+        est_cf = mean(fest[:, 1])
+        se_cf = sqrt(mean(fest[:, 2]) + var(fest[:, 1]))
+        z[i, :] = [target, est_cf, se_cf, (est_cf - target) / se_cf, est_mb, se_mb, (est_mb - target) / se_mb]
     end
 
-    return R
+    zf = DataFrame(z, [:target, :est_cf, :sd_cf, :z_cf, :est_model, :se_model, :z_model])
+    zf[:, :tau] .= tau
+    zf[:, :icc] .= icc
+
+    return zf
 end
 
-function study_hom(n, p, tau::Float64, icc; rng=StableRNG(123), nrep=1000, nfold=100)
+function simstudy_crossfit(n, p, icc, tau::Float64, tgtf; rng=StableRNG(123), nrep=1000, nfold=100)
 
-    r = 0.7
-    X = genAR(rng, n, p, r)
+    X = genAR(rng, n, p, icc)
+    zf = crossfit_helper(tau, X, icc, tgtf; rng=rng, nrep=nrep, nfold=nfold)
 
-    R = study_hom(tau, X, icc; rng=rng, nrep=nrep, nfold=nfold)
-
-    return R
+    return zf
 end
 
-n = 400
-p = 3
-for tau in [0.01, 0.25] #, 0.75, 0.9, 0.95, 0.99]
-    for icc in [0., 0.25] #, 0.5]
-        _, _, tgtf = simdat(Random.default_rng(), icc, randn(n, p))
-        R = study_hom(n, p, tau, icc; nrep=200, nfold=50)
-        println("tau=", tau)
-        println(@sprintf("%12.4f target", tgtf(tau)))
-        println(@sprintf("%12.4f mean estimate", mean(R[:, 1])))
-        println(@sprintf("%12.4f mean crossfit SE", mean(R[:, 2])))
-        println(@sprintf("%12.4f mean model-based SE", mean(R[:, 3])))
-        println(@sprintf("%12.4f empirical SE", std(R[:, 1])))
-        println("")
-    end
+function summary(zf)
+    println(@sprintf("%10.4f  Tau", first(zf[:, :tau])))
+    println(@sprintf("%10.4f  ICC", first(zf[:, :icc])))
+    println(@sprintf("%10.4f  Target", first(zf[:, :target])))
+    println(@sprintf("%10.4f  Mean crossfit estimate", mean(zf[:, :est_cf])))
+    println(@sprintf("%10.4f  Bias of crossfit estimate", mean(zf[:, :est_cf]) - first(zf[:, :target])))
+    println(@sprintf("%10.4f  SD of crossfit estimate", std(zf[:, :est_cf])))
+    println(@sprintf("%10.4f  Mean of crossfit SE", mean(zf[:, :sd_cf])))
+    println(@sprintf("%10.4f  SD of crossfit Z-scores", std(zf[:, :z_cf])))
+    println(@sprintf("%10.4f  Mean model-based estimate", mean(zf[:, :est_model])))
+    println(@sprintf("%10.4f  Bias of model-based estimate", mean(zf[:, :est_model]) - first(zf[:, :target])))
+    println(@sprintf("%10.4f  SD of model-based estimate", std(zf[:, :est_model])))
+    println(@sprintf("%10.4f  Mean cluster-robust SE", mean(zf[:, :se_model])))
+    println(@sprintf("%10.4f  SD of cluster-robust Z-scores", std(zf[:, :z_model])))
 end
+
+n = 500
+p = 10
+tau = 0.01
+icc = 0.5
+
+_, _, tgtf = gendat(Random.default_rng(), icc, randn(n, p))
+zf = simstudy_crossfit(n, p, icc, tau, tgtf; nrep=500, nfold=50)
+summary(zf)

@@ -81,9 +81,11 @@ function fit_multikernel(y, Ey, X, Z, Pen, M, lam, tau, mk; adjust=:hc3)
     return est_cf, se_cf, est_mb, se_mb
 end
 
-function simstudy(n, p, icc, lam, tau; nrep=100, adjust=:hc2)
+function simstudy_multikernel(n, p, icc, lam, tau; nrep=100, adjust=:hc2)
 
     rng = StableRNG(123)
+
+    # Using same ICC for covariates and residual variation
     X = genAR(Random.default_rng(), n, p, icc)
 
     ker1 = ConstantKernel()
@@ -117,11 +119,17 @@ function simstudy(n, p, icc, lam, tau; nrep=100, adjust=:hc2)
     end
 
     zf = DataFrame(z, [:target, :est_cf, :sd_cf, :z_cf, :est_model, :se_model, :z_model])
+    zf[:, :tau] .= tau
+    zf[:, :lambda] .= lam
+    zf[:, :icc] .= icc
 
     return zf
 end
 
 function summary(zf)
+    println(@sprintf("%10.4f  Tau", first(zf[:, :tau])))
+    println(@sprintf("%10.4f  ICC", first(zf[:, :icc])))
+    println(@sprintf("%10.4f  lambda", first(zf[:, :lambda])))
     println(@sprintf("%10.4f  Target", first(zf[:, :target])))
     println(@sprintf("%10.4f  Mean crossfit estimate", mean(zf[:, :est_cf])))
     println(@sprintf("%10.4f  Bias of crossfit estimate", mean(zf[:, :est_cf]) - first(zf[:, :target])))
@@ -131,16 +139,16 @@ function summary(zf)
     println(@sprintf("%10.4f  Mean model-based estimate", mean(zf[:, :est_model])))
     println(@sprintf("%10.4f  Bias of model-based estimate", mean(zf[:, :est_model]) - first(zf[:, :target])))
     println(@sprintf("%10.4f  SD of model-based estimate", std(zf[:, :est_model])))
-    println(@sprintf("%10.4f  Mean model-based SE", mean(zf[:, :se_model])))
-    println(@sprintf("%10.4f  SD of model-based Z-scores", std(zf[:, :z_model])))
+    println(@sprintf("%10.4f  Mean cluster-robust SE", mean(zf[:, :se_model])))
+    println(@sprintf("%10.4f  SD of cluster-robust Z-scores", std(zf[:, :z_model])))
 end
 
 n = 500
 p = 10
 icc = 0.5
 tau = 0.01
-lam = 1/sqrt(n)
+lam = 0.1/sqrt(n)
 nrep = 200
 adjust = :hc2
-zf = simstudy(n, p, icc, lam, tau; nrep=nrep, adjust=adjust)
+zf = simstudy_multikernel(n, p, icc, lam, tau; nrep=nrep, adjust=adjust)
 summary(zf)
