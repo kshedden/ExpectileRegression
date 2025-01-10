@@ -26,5 +26,5 @@ function genAR(rng, n, p)
     return X
 end
 
-include("low_rank.jl")
 include("expectreg.jl")
+include("low_rank.jl")

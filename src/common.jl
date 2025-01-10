@@ -14,3 +14,10 @@ function elossgrad(x, tau)
     f = x > 0 ? tau : 1 - tau
     return 2 * f * x
 end
+
+# The second derivative of the expectile loss function.
+# Equivalent to 2*check.
+function elosshess(x, tau)
+    f = x > 0 ? tau : 1 - tau
+    return 2 * f
+end
